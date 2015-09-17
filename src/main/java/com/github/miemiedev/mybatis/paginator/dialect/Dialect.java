@@ -5,12 +5,15 @@ import com.github.miemiedev.mybatis.paginator.domain.PageBounds;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
 import org.apache.ibatis.mapping.ParameterMapping;
+import org.apache.ibatis.reflection.MetaObject;
+import org.apache.ibatis.reflection.property.PropertyTokenizer;
+import org.apache.ibatis.reflection.wrapper.BeanWrapper;
+import org.apache.ibatis.reflection.wrapper.ObjectWrapper;
 import org.apache.ibatis.session.RowBounds;
+import org.apache.ibatis.type.SimpleTypeRegistry;
+import org.apache.ibatis.type.TypeHandlerRegistry;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 类似hibernate的Dialect,但只精简出分页部分
@@ -18,7 +21,7 @@ import java.util.Map;
  * @author miemiedev
  */
 public class Dialect {
-
+    protected TypeHandlerRegistry typeHandlerRegistry;
     protected MappedStatement mappedStatement;
     protected PageBounds pageBounds;
     protected Object parameterObject;
@@ -34,19 +37,35 @@ public class Dialect {
         this.mappedStatement = mappedStatement;
         this.parameterObject = parameterObject;
         this.pageBounds = pageBounds;
+        this.typeHandlerRegistry = mappedStatement.getConfiguration().getTypeHandlerRegistry();
 
         init();
     }
 
     protected void init(){
+
         boundSql = mappedStatement.getBoundSql(parameterObject);
         parameterMappings = new ArrayList(boundSql.getParameterMappings());
         if(parameterObject instanceof Map){
             pageParameters.putAll((Map)parameterObject);
-        }else{
-            for (ParameterMapping parameterMapping : parameterMappings) {
-                pageParameters.put(parameterMapping.getProperty(),parameterObject);
+        }else if( parameterObject != null){
+            Class cls = parameterObject.getClass();
+            if(cls.isPrimitive() || cls.isArray() ||
+                    SimpleTypeRegistry.isSimpleType(cls) ||
+                    Enum.class.isAssignableFrom(cls) ||
+                    Collection.class.isAssignableFrom(cls)){
+                for (ParameterMapping parameterMapping : parameterMappings) {
+                    pageParameters.put(parameterMapping.getProperty(),parameterObject);
+                }
+            }else{
+                MetaObject metaObject = mappedStatement.getConfiguration().newMetaObject(parameterObject);
+                ObjectWrapper wrapper = metaObject.getObjectWrapper();
+                for (ParameterMapping parameterMapping : parameterMappings) {
+                    PropertyTokenizer prop = new PropertyTokenizer(parameterMapping.getProperty());
+                    pageParameters.put(parameterMapping.getProperty(),wrapper.get(prop));
+                }
             }
+
         }
 
         StringBuffer bufferSql = new StringBuffer(boundSql.getSql().trim());
@@ -130,5 +149,4 @@ public class Dialect {
         buffer.delete(buffer.length()-2, buffer.length());
         return buffer.toString();
     }
-    
 }
